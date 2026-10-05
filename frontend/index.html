@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>iPXE ZTP Server</title>
+    <script>
+      (function () {
+        const t = localStorage.getItem('theme') || 'system';
+        const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+        const isDark = t === 'dark' || t === 'night' || (t === 'system' && sysDark);
+        const el = document.documentElement;
+        el.classList.toggle('dark', isDark);
+        el.classList.toggle('night', t === 'night');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

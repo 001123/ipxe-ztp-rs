@@ -1,0 +1,79 @@
+# ═══════════════════════════════════════════════════════════════
+#  ⚙  TASK RUNNER — `mise tasks` to list, `mise run <task>` to run
+#  Rust is installed via mise, so mise doubles as the runner — no extra tools.
+# ═══════════════════════════════════════════════════════════════
+#  Both servers listen on 0.0.0.0 (LAN). Vite reads `HOST`, the backend
+#  reads `BINDING` (config/development.yaml: get_env BINDING, default localhost).
+# ═══════════════════════════════════════════════════════════════
+
+[tasks.dev]
+description = "🚀 BE (5150) + FE dev (5173) on LAN in a single terminal. Ctrl+C stops both."
+run = """
+set -e
+trap 'kill 0' EXIT
+LAN_IP=$(ipconfig getifaddr $(route -n get default 2>/dev/null | awk '/interface:/{print $2}') 2>/dev/null || true)
+if [ -n "$LAN_IP" ]; then
+  printf '┌──────────────────────────────────────────────────────┐\\n'
+  printf '│  ▸ On LAN                                            │\\n'
+  printf '│    ▸ FE:  %-42s │\\n' "http://$LAN_IP:5173"
+  printf '│    ▸ BE:  %-42s │\\n' "http://$LAN_IP:5150"
+  printf '└──────────────────────────────────────────────────────┘\\n'
+fi
+# PUBLIC_HOST is embedded into the iPXE scripts served to LAN clients —
+# localhost would make them chain to themselves. LAN IP wins unless the
+# caller exports PUBLIC_HOST explicitly (DB setting beats env anyway).
+export PUBLIC_HOST="${PUBLIC_HOST:-http://${LAN_IP:-localhost}:5150}"
+(cd frontend && HOST=0.0.0.0 pnpm dev) &
+BINDING=0.0.0.0 PUBLIC_HOST="$PUBLIC_HOST" cargo loco start
+"""
+
+[tasks.check]
+description = "✔ Full verify: fmt + clippy + test + frontend build"
+run = """
+cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test && (cd frontend && pnpm build)
+"""
+
+[tasks.serve]
+description = "📦 Single server (5150) on LAN serving a prebuilt frontend — production-style, no hot reload"
+run = """
+cd frontend && pnpm build && cd ..
+LAN_IP=$(ipconfig getifaddr $(route -n get default 2>/dev/null | awk '/interface:/{print $2}') 2>/dev/null || true)
+if [ -n "$LAN_IP" ]; then
+  printf '┌──────────────────────────────────────────────────────┐\\n'
+  printf '│  ▸ On LAN                                            │\\n'
+  printf '│    ▸ App: %-42s │\\n' "http://$LAN_IP:5150"
+  printf '└──────────────────────────────────────────────────────┘\\n'
+fi
+BINDING=0.0.0.0 cargo loco start
+"""
+
+[tasks.build-prod]
+description = "🏗 Single-file production binary for Proxmox LXC (Linux x86_64, frontend baked in)"
+run = """
+set -e
+cd frontend && pnpm build && cd ..
+rm -rf assets && mkdir assets && cp -R frontend/dist/. assets/
+cargo zigbuild --release --features embedded-assets --target x86_64-unknown-linux-gnu
+BIN=target/x86_64-unknown-linux-gnu/release/ipxe_loco_rs-cli
+printf '\\n✅ binary: %s\\n' "$BIN"
+printf 'Deploy (LXC): scp %s config/production.yaml host:/opt/ipxe/ then run\\n' "$BIN"
+printf '  LOCO_ENV=production DATABASE_URL=... JWT_SECRET=... HOST=... PUBLIC_HOST=... ./ipxe_loco_rs-cli start\\n'
+"""
+
+[tasks.sync-nfs]
+description = "🔁 Rsync the data dir to the PVE host NFS export (/srv/ipxe-rs) for low-RAM (nfs boot mode) installs"
+run = """
+set -e
+CRED=secret/proxmox-credentials.env
+if [ -z "${PVE_SSH:-}" ] && [ -f "$CRED" ]; then
+  PVE_SSH="root@$(sed -n -E 's#^PVE_HOST="https?://([^:"]*).*#\\1#p' "$CRED")"
+fi
+if [ -z "${PVE_SSH:-}" ] || [ "$PVE_SSH" = "root@" ]; then
+  echo "error: no SSH target — set PVE_SSH=root@<pve-ip> or fill PVE_HOST in $CRED" >&2
+  exit 1
+fi
+echo "syncing data/ → $PVE_SSH:/srv/ipxe-rs/"
+rsync -av --delete -e ssh data/ "$PVE_SSH:/srv/ipxe-rs/"
+echo
+echo "verify on the PVE host: ls /srv/ipxe-rs/os/*/casper/"
+"""

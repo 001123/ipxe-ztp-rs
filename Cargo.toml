@@ -1,0 +1,91 @@
+[workspace]
+
+[package]
+name = "ipxe-loco-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+default-run = "ipxe_loco_rs-cli"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace.dependencies]
+loco-rs = { version = "1.2" }
+
+[dependencies]
+loco-rs = { workspace = true  }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+tokio = { version = "1.45", default-features = false, features = [
+  "rt-multi-thread",
+  "fs",
+  "io-util",
+] }
+async-trait = { version = "0.1" }
+axum = { version = "0.8" }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+regex = { version = "1.11" }
+migration = { path = "migration" }
+sea-orm = { version = "2.0", features = [
+  "sqlx-sqlite",
+  "sqlx-postgres",
+  "runtime-tokio-rustls",
+  "macros",
+] }
+chrono = { version = "0.4" }
+validator = { version = "0.20" }
+uuid = { version = "1.6", features = ["v4"] }
+# ts-rs derives the TypeScript bindings for the `dtos` (the typed JSON API
+# contract). Present for every db app; the SPA frontend consumes the exports,
+# and a headless app can still emit them for external consumers.
+ts-rs = { version = "12", features = ["chrono-impl", "serde-compat"] }
+include_dir = { version = "0.7" }
+axum-extra = { version = "0.10", features = ["form"] }
+# Streaming downloads of OS artifacts (kernel/initrd/ISO) in DownloadWorker
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "stream",
+] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Streaming downloaded OS artifacts off disk to iPXE clients (serve_file)
+tokio-util = { version = "0.7", features = ["io"] }
+# Platform-standard data directory for downloaded OS artifacts
+directories = { version = "6" }
+# Loads `.env` (IPXE_ZTP_TEST_SSH_KEY etc.) in the DevSshKeyInitializer at boot
+dotenvy = { version = "0.15" }
+# SHA-512 crypt ($6$) hashing for the autoinstall install password — the
+# format subiquity's identity section requires (loco's argon2 is not
+# accepted there). The getrandom feature lets `hash_password` generate the
+# salt from the OS RNG.
+sha-crypt = { version = "0.6", features = ["getrandom"] }
+
+[features]
+default = []
+# Bake the built frontend (`assets/`, populated by `mise run build-prod`) into
+# the binary so a production deploy is a single executable. Dev builds keep
+# serving `frontend/dist` from disk (config/development.yaml) as before.
+embedded-assets = ["loco-rs/embedded_assets"]
+
+[[bin]]
+name = "ipxe_loco_rs-cli"
+path = "src/bin/main.rs"
+required-features = []
+
+[dev-dependencies]
+loco-rs = { workspace = true, features = ["testing"] }
+serial_test = { version = "4" }
+rstest = { version = "0.26" }
+insta = { version = "1.34", features = ["redactions", "yaml", "filters"] }
+
+# Shrink target/debug: keep only line tables instead of full DWARF.
+# Backtraces and breakpoints/stepping in this app's own code still work;
+# variable inspection in a debugger and debugging inside dependencies are lost.
+[profile.dev]
+debug = "line-tables-only"
+
+# Disable debug info for dependencies entirely (tokio, sea-orm, sqlx, axum, ...):
+# they account for most of the disk usage and are rarely worth stepping into.
+[profile.dev.package."*"]
+debug = false
